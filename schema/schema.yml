@@ -1,0 +1,50 @@
+- name: migrations
+  comment: Migrations
+  columns:
+    - name: project
+      type: TEXT
+      key: PRI
+      comment: Project
+      datatype: text
+    - name: filename
+      type: TEXT
+      key: PRI
+      comment: Filename
+      datatype: text
+    - name: statement_index
+      type: INTEGER
+      comment: Statement Index
+      datatype: integer
+    - name: status
+      type: TEXT
+      comment: Status
+      datatype: text
+  indexes:
+    - name: sqlite_autoindex_migrations_1
+      columns:
+        - project
+        - filename
+      primary: true
+      unique: true
+- name: user
+  comment: User
+  columns:
+    - name: id
+      type: TEXT
+      key: PRI
+      comment: ID
+      datatype: text
+    - name: name
+      type: TEXT
+      comment: Name
+      datatype: text
+    - name: email
+      type: TEXT
+      comment: Email
+      datatype: text
+  indexes:
+    - name: sqlite_autoindex_user_1
+      columns:
+        - id
+      primary: true
+      unique: true

@@ -1,0 +1,7 @@
+tasks:
+  default:
+    passthru: true
+    cmds:
+      - gotip fmt ./...
+      - gotip test -bench=. -benchtime=10s -count 1 -cover -coverpkg github.com/titpetric/pdo/... -coverprofile pkg.cov ./...
+      - gotip tool cover -func=pkg.cov | summary coverfunc --packages
