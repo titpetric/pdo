@@ -6,6 +6,14 @@ import (
 	"github.com/titpetric/pdo/client"
 )
 
+// Connector manages an exclusive connection taken from the pool.
+type Connector interface {
+	// Connect takes an exclusive connection from the pool.
+	Connect(ctx context.Context) error
+	// Close returns the exclusive connection to the pool.
+	Close() error
+}
+
 // Transactor contains mutators to begin, commit and rollback transaction.
 type Transactor interface {
 	// Begin starts a transaction.

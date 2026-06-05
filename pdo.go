@@ -2,7 +2,6 @@ package pdo
 
 import (
 	"context"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -19,6 +18,19 @@ func New(db *sqlx.DB) *PDO {
 	return &PDO{
 		client: client.NewClient(db),
 	}
+}
+
+// Connect takes an exclusive connection from the pool for use by the client.
+// Subsequent reads run on this connection until Close is called. Writes
+// continue to use the pool, since *sqlx.Conn cannot bind named parameters.
+func (h *PDO) Connect(ctx context.Context) error {
+	return h.client.Connect(ctx)
+}
+
+// Close returns the exclusive connection taken by Connect to the pool.
+// It is a no-op if Connect was not called.
+func (h *PDO) Close() error {
+	return h.client.Close()
 }
 
 // WithObserver passes along an observer to the client.
@@ -49,25 +61,6 @@ func (h *PDO) Commit() error {
 // Rollback will rollback the transaction, reverting it in case of error.
 func (h *PDO) Rollback() error {
 	return h.client.Rollback()
-}
-
-// Transaction is a helper to run some code in transaction context.
-// It will retry the transaction commit once with 50ms delay.
-func (h *PDO) Transaction(ctx context.Context, txfn func(ctx context.Context) error) error {
-	if err := h.Begin(ctx); err != nil {
-		return err
-	}
-
-	if err := txfn(ctx); err != nil {
-		h.Rollback()
-		return err
-	}
-
-	if err := h.Commit(); err != nil {
-		time.Sleep(50 * time.Millisecond)
-		return h.Commit()
-	}
-	return nil
 }
 
 // Insert inserts a value into the table with compile-time type safety.

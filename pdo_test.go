@@ -16,6 +16,7 @@ import (
 
 var _ pdo.Transactor = (*pdo.PDO)(nil)
 var _ pdo.QueryResultState = (*pdo.PDO)(nil)
+var _ pdo.Connector = (*pdo.PDO)(nil)
 
 // TestNamedQueries exercises the main use case: inserting, updating, replacing
 // and selecting structs through named (:tag) bindings driven by db tags.
@@ -77,6 +78,24 @@ func TestSelect(t *testing.T) {
 	names, err := db.Select[string](ctx, "SELECT name FROM user ORDER BY name")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"X", "Y", "Z"}, names)
+}
+
+func TestConnectClose(t *testing.T) {
+	db := tests.NewPDO(t)
+	ctx := context.Background()
+
+	// Close is a no-op before Connect.
+	require.NoError(t, db.Close())
+
+	require.NoError(t, db.Insert(ctx, model.UserTable, model.User{ID: "cc1", Name: "CC", Email: "cc@t"}))
+
+	// Reads run on the exclusive connection while connected.
+	require.NoError(t, db.Connect(ctx))
+	got, err := db.Get[model.User](ctx, "SELECT id, name, email FROM user WHERE id = ?", "cc1")
+	require.NoError(t, err)
+	assert.Equal(t, "CC", got.Name)
+
+	require.NoError(t, db.Close())
 }
 
 func TestTransactionCommit(t *testing.T) {

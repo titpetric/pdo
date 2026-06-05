@@ -7,6 +7,7 @@ import (
 // Type driver is the typeless DB interface.
 type driver interface {
 	QueryResultState
+	Connector
 	Transactor
 	Observer
 
