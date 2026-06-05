@@ -1,21 +1,20 @@
 # pdo
 
-`pdo` is a small, request-scoped SQL client for Go services. It is built for the
-shape of a normal `net/http` server: the standard library already hands every
-request its own goroutine, so the natural unit of database state is *one client
-per request*. Instead of threading connections, transactions, and "last insert
-id" bookkeeping through every function call, you create a single client at the
-top of a handler and use it for the lifetime of that request.
+`pdo` is a small, request-scoped SQL client for Go services. It fits the shape of
+a normal `net/http` server: the standard library already gives every request its
+own goroutine, so the natural unit of database state is one client per request.
+Rather than threading connections, transactions, and "last insert id" bookkeeping
+through every function call, you create one client at the top of a handler and use
+it for the rest of that request.
 
-The client builds in query observation, pooling and single connection use. It
-aims to provide a short and readable API which handles CRUD operations in an
-ORM like fashion, and defaults to SQL for everything else.
+The client handles query observation, pooling, and single-connection use. The API
+is short and readable: it covers CRUD in an ORM-like way and falls back to plain
+SQL for everything else.
 
-Using the client, a function that writes a row looks identical whether
-it runs standalone or as one step inside a larger transaction. The
-client also exposes typed reads via Go 1.27 generic methods (`Get[T]`,
-`Select[T]`) so results scan straight into your structs, decreasing the
-complexity of your storage and repository packages.
+A function that writes a row looks the same whether it runs on its own or as one
+step inside a larger transaction. Typed reads use Go 1.27 generic methods
+(`Get[T]`, `Select[T]`), so results scan straight into your structs and your
+storage and repository packages stay simple.
 
 > **Requires Go 1.27+ (`gotip`).** The public API uses *generic methods*, a
 > language feature not yet in released Go. See [Building & testing](#building--testing).
@@ -23,10 +22,10 @@ complexity of your storage and repository packages.
 ## Requirements: sqlx
 
 `pdo` is currently a thin layer over [`jmoiron/sqlx`](https://github.com/jmoiron/sqlx),
-which it requires for setup. You own the `*sqlx.DB` connection pool — opening it,
-configuring it, and running migrations — and you hand that pool to `pdo.New`.
+which it requires for setup. You own the `*sqlx.DB` connection pool - opening it,
+configuring it, and running migrations - and you hand that pool to `pdo.New`.
 The pool is safe for concurrent use; the per-request `*PDO` you create from it is
-not (that is the whole point — it is single-goroutine, request-scoped state).
+not. That's the whole point: it's single-goroutine, request-scoped state.
 
 ```go
 import (
@@ -102,9 +101,9 @@ func (s *ExampleService) CreateUser(w http.ResponseWriter, r *http.Request) {
 ## Pinning a connection with Connect()
 
 By default each query borrows a connection from the pool and returns it. When a
-request needs several queries to run on the *same* physical connection — for
-session settings, temporary tables, or read-your-write consistency on reads —
-pin one with `Connect()` and release it with `Close()`:
+request needs several queries on the *same* physical connection - for session
+settings, temporary tables, or read-your-write consistency on reads - pin one with
+`Connect()` and release it with `Close()`:
 
 ```go
 func (s *ExampleService) Report(w http.ResponseWriter, r *http.Request) {
@@ -127,26 +126,29 @@ func (s *ExampleService) Report(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+After `Connect()`, `Begin` starts its transaction on the pinned connection. Once
+the transaction commits, the connection stays pinned until you call `Close()`.
+
 > Note: reads run on the pinned connection, but writes still go through the pool,
 > because `*sqlx.Conn` cannot bind named (`:name`) parameters. Don't pin the only
 > connection of a single-connection pool and then write, or the write will block
 > waiting for a connection that is already held.
 >
-> The easy way to make sure named parameters work with Exec is to create a
-> transaction before issuing writes with Exec.
+> The simplest way to make named parameters work with Exec is to start a
+> transaction before issuing those writes.
 
 ### Storage code is transaction-agnostic
 
-The important property is that storage functions don't need to know whether a
+The key property is that storage functions don't need to know whether a
 transaction is active. They take the client and call `Insert`/`Update`/`Exec`
 normally; the client routes the work to the open transaction if there is one, or
-straight to the pool if there isn't. The same function therefore works both
-standalone and as one step of a larger transaction — with no special "tx"
-parameter and no duplicate transactional/non-transactional variants.
+straight to the pool if there isn't. So the same function works both standalone
+and as one step of a larger transaction, with no special "tx" parameter and no
+duplicate transactional and non-transactional variants.
 
-A transaction is started with `Begin`, finalized with `Commit`, or reverted with
-`Rollback`. Once a transaction is open on a client, every subsequent query on
-that client runs inside it until you commit or roll back.
+Start a transaction with `Begin`, finalize it with `Commit`, or revert it with
+`Rollback`. Once a transaction is open on a client, every later query on that
+client runs inside it until you commit or roll back.
 
 
 ```go
@@ -193,18 +195,17 @@ func Signup(ctx context.Context, db *pdo.PDO, u User, m Membership) error {
 }
 ```
 
-This collapses a lot of complexity out of the storage layer. Most storage
-operations are a single statement, and a single statement is just the smallest
-possible transaction. By treating every interaction as transactional by default,
-the storage package stops needing two code paths (one that takes a `*sql.Tx` and
-one that takes a `*sql.DB`) and instead exposes one consistent set of functions
-that compose freely. The caller decides the boundary; the functions don't change.
+This removes a lot of complexity from the storage layer. Most storage operations
+are a single statement, and a single statement is just the smallest possible
+transaction. By treating every interaction as transactional by default, the
+storage package no longer needs two code paths (one taking a `*sql.Tx` and one
+taking a `*sql.DB`); it exposes one consistent set of functions that compose
+freely. The caller decides the boundary, and the functions don't change.
 
-In practice a transaction is mostly a batch of `INSERT`/`UPDATE`
-statements. Interleaving `SELECT`s inside a transaction is possible but
-rare and generally worth avoiding to decouple read logic away from write
-boundaries. Keep transactions short, write-focused, and let reads happen
-outside them where you can.
+In practice a transaction is mostly a batch of `INSERT`/`UPDATE` statements. You
+can interleave `SELECT`s inside one, but it's rare and usually worth avoiding so
+read logic stays decoupled from write boundaries. Keep transactions short and
+write-focused, and run reads outside them where you can.
 
 ## API reference
 
@@ -241,7 +242,7 @@ the last statement.
 
 ### Parameter binding
 
-Queries are always parameterized — never build SQL by string interpolation.
+Queries are always parameterized - never build SQL by string interpolation.
 Two styles are supported and auto-detected:
 
 - **Positional**: `"... WHERE id = ?"` with trailing args.
