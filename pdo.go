@@ -8,7 +8,14 @@ import (
 	"github.com/titpetric/pdo/client"
 )
 
-// PDO implements the client with a go generics 1.27+ method API.
+// PDO implements the client with a go generics 1.27+ method API. Its
+// data methods provide compile-time type safety through generic type
+// parameters.
+//
+// A PDO is intended for request-scoped allocation: create one per request
+// with New, optionally take an exclusive connection with Connect, and
+// release it with Close when the request completes. It is not safe for
+// concurrent use across goroutines.
 type PDO struct {
 	client driver
 }
@@ -63,17 +70,17 @@ func (h *PDO) Rollback() error {
 	return h.client.Rollback()
 }
 
-// Insert inserts a value into the table with compile-time type safety.
+// Insert inserts a value into the table.
 func (h *PDO) Insert[T any](ctx context.Context, table string, value T) error {
 	return h.client.Insert(ctx, table, value)
 }
 
-// Replace performs a REPLACE INTO with compile-time type safety.
+// Replace performs a REPLACE INTO.
 func (h *PDO) Replace[T any](ctx context.Context, table string, value T) error {
 	return h.client.Replace(ctx, table, value)
 }
 
-// Update updates rows with compile-time type safety.
+// Update updates rows matching the given key columns.
 func (h *PDO) Update[T any](ctx context.Context, table string, value T, keyCols ...string) error {
 	return h.client.Update(ctx, table, value, keyCols...)
 }
