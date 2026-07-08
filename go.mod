@@ -1,6 +1,6 @@
 module github.com/titpetric/pdo
 
-go 1.27
+go 1.27rc1
 
 require (
 	github.com/jmoiron/sqlx v1.4.0
