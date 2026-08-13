@@ -21,6 +21,11 @@ func NewBridge(db *sqlx.DB) *Bridge {
 	return &Bridge{client: NewClient(db)}
 }
 
+// WithObserver sets an observer on the underlying client.
+func (b *Bridge) WithObserver(fn ObserveFunc) {
+	b.client.WithObserver(fn)
+}
+
 // Insert inserts a dynamically typed named value.
 func (b *Bridge) Insert(ctx context.Context, table string, value any) (any, error) {
 	err := b.client.Insert(ctx, table, value)
@@ -61,8 +66,7 @@ func (b *Bridge) Get(ctx context.Context, query string, args ...any) (any, error
 	return rows[0], nil
 }
 
-// GetAll returns all result rows. Its name intentionally matches the
-// snake_case method exposed to dynamic language runtimes.
+// GetAll returns all result rows.
 func (b *Bridge) GetAll(ctx context.Context, query string, args ...any) (any, error) {
 	return b.queryMaps(ctx, query, args...)
 }

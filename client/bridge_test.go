@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -28,6 +29,21 @@ func TestBridgeGet(t *testing.T) {
 
 	_, err = db.Get(ctx, "SELECT id FROM user WHERE id = ?", "missing")
 	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func TestBridgeObserver(t *testing.T) {
+	ctx := t.Context()
+	db := client.NewBridge(tests.NewDB(t))
+	var entries []client.QueryLogEntry
+	db.WithObserver(func(_ context.Context, entry client.QueryLogEntry) {
+		entries = append(entries, entry)
+	})
+
+	_, err := db.Query(ctx, "INSERT INTO user (id, name, email) VALUES (?, ?, ?)", "observed", "Observed", "observed@t")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "INSERT INTO user (id, name, email) VALUES (?, ?, ?)", entries[0].Query)
+	require.Positive(t, entries[0].Duration)
 }
 
 func TestBridgeWriteAndTransactionSignatures(t *testing.T) {
