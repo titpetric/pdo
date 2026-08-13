@@ -51,3 +51,32 @@ func TestObserverTxDepth(t *testing.T) {
 	}
 	require.Equal(t, []int{1}, depths)
 }
+
+func TestInsertNamedValues(t *testing.T) {
+	ctx := t.Context()
+	db := client.NewClient(tests.NewDB(t))
+
+	require.NoError(t, db.Insert(ctx, model.UserTable, map[string]any{
+		"id":    "m1",
+		"name":  "Map",
+		"email": "map@t",
+	}))
+	require.NoError(t, db.Insert(ctx, model.UserTable, mappedValues{
+		"id":    "m2",
+		"name":  "Mapped",
+		"email": "mapped@t",
+	}))
+
+	var users []model.User
+	require.NoError(t, db.Select(ctx, &users, "SELECT id, name, email FROM user ORDER BY id"))
+	require.Equal(t, []model.User{
+		{ID: "m1", Name: "Map", Email: "map@t"},
+		{ID: "m2", Name: "Mapped", Email: "mapped@t"},
+	}, users)
+}
+
+type mappedValues map[string]any
+
+func (v mappedValues) Map() map[string]any {
+	return v
+}

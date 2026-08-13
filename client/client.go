@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -51,10 +52,10 @@ func (p *Client) WithObserver(fn ObserveFunc) {
 	p.observe = fn
 }
 
-// Insert inserts a struct into the table. The struct must have `db` tags.
-// Uses NamedExecContext to bind struct fields to :name placeholders.
+// Insert inserts a struct with `db` tags or a string-keyed map into the table.
+// Uses NamedExecContext to bind fields to :name placeholders.
 func (p *Client) Insert(ctx context.Context, table string, value any) error {
-	cols, err := structColumns(value)
+	cols, value, err := namedColumns(value)
 	if err != nil {
 		return err
 	}
@@ -66,9 +67,9 @@ func (p *Client) Insert(ctx context.Context, table string, value any) error {
 	return p.exec(ctx, query, value)
 }
 
-// Replace performs a REPLACE INTO operation with a struct.
+// Replace performs a REPLACE INTO operation with a struct or string-keyed map.
 func (p *Client) Replace(ctx context.Context, table string, value any) error {
-	cols, err := structColumns(value)
+	cols, value, err := namedColumns(value)
 	if err != nil {
 		return err
 	}
@@ -80,9 +81,9 @@ func (p *Client) Replace(ctx context.Context, table string, value any) error {
 	return p.exec(ctx, query, value)
 }
 
-// Update updates rows using a struct. keyCols specify WHERE columns.
+// Update updates rows using a struct or string-keyed map. keyCols specify WHERE columns.
 func (p *Client) Update(ctx context.Context, table string, value any, keyCols ...string) error {
-	cols, err := structColumns(value)
+	cols, value, err := namedColumns(value)
 	if err != nil {
 		return err
 	}
@@ -110,6 +111,11 @@ func (p *Client) Update(ctx context.Context, table string, value any, keyCols ..
 
 // Exec executes a query with args (positional, map, or struct for named params).
 func (p *Client) Exec(ctx context.Context, query string, args ...any) error {
+	return p.exec(ctx, query, args...)
+}
+
+// Query is an alias of Exec, added for usage ergonomics.
+func (p *Client) Query(ctx context.Context, query string, args ...any) error {
 	return p.exec(ctx, query, args...)
 }
 
@@ -193,6 +199,38 @@ func (p *Client) Commit() error {
 }
 
 // --- Internal implementations ---
+
+// namedColumns extracts named values from maps and values that expose a map.
+func namedColumns(value any) ([]string, any, error) {
+	switch value := value.(type) {
+	case map[string]any:
+		return namedMapColumns(value, value)
+	case map[string]string:
+		return namedMapColumns(value, value)
+	case interface{ Map() map[string]any }:
+		return namedMapColumns(value.Map(), value)
+	default:
+		cols, err := structColumns(value)
+		return cols, value, err
+	}
+}
+
+func namedMapColumns[T any](values map[string]T, original any) ([]string, any, error) {
+	cols := mapColumns(values)
+	if len(cols) == 0 {
+		return nil, nil, fmt.Errorf("pdodb: no named values found in %T", original)
+	}
+	return cols, values, nil
+}
+
+func mapColumns[T any](value map[string]T) []string {
+	cols := make([]string, 0, len(value))
+	for col := range value {
+		cols = append(cols, col)
+	}
+	sort.Strings(cols)
+	return cols
+}
 
 // structColumns extracts column names from a struct's `db` tags.
 func structColumns(value any) ([]string, error) {
