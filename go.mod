@@ -1,11 +1,11 @@
 module github.com/titpetric/pdo
 
-go 1.27rc1
+go 1.27.0
 
 require (
 	github.com/jmoiron/sqlx v1.4.0
-	github.com/stretchr/testify v1.12.0
-	modernc.org/sqlite v1.56.0
+	github.com/stretchr/testify v1.12.1
+	modernc.org/sqlite v1.57.0
 )
 
 require (
@@ -19,6 +19,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
