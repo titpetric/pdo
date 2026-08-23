@@ -321,18 +321,13 @@ func (p *Client) queryer() interface {
 }
 
 func (p *Client) exec(ctx context.Context, query string, args ...any) error {
-	started := time.Now()
-	var (
-		res     sql.Result
-		err     error
-		logArgs any = args
-	)
-	if len(args) == 1 && isNamedArg(args[0]) {
-		logArgs = args[0]
-		res, err = sqlx.NamedExecContext(ctx, p.execer(), query, args[0])
-	} else {
-		res, err = p.execer().ExecContext(ctx, query, args...)
+	q, boundArgs, logArgs, err := p.prepareQuery(query, args...)
+	if err != nil {
+		return fmt.Errorf("%w\nquery: %s", err, query)
 	}
+
+	started := time.Now()
+	res, err := p.execer().ExecContext(ctx, q, boundArgs...)
 	p.log(ctx, query, logArgs, started, err)
 	if err != nil {
 		return fmt.Errorf("%w\nquery: %s", err, query)
@@ -386,10 +381,21 @@ func (p *Client) getRow(ctx context.Context, dest any, query string, args ...any
 	return nil
 }
 
+// prepareQuery resolves a statement and its arguments into the form the
+// driver expects.
+//
+// Positional arguments are rebound, because `?` is not the placeholder every
+// driver reads: pgx wants $1, $2. Rebind is a scanner rather than a parser and
+// would rewrite a `?` inside a string literal, so it only runs when there is
+// something to bind. A statement with no arguments is passed through as
+// written, which is what an SQL console needs.
 func (p *Client) prepareQuery(query string, args ...any) (string, []any, any, error) {
 	if len(args) == 1 && isNamedArg(args[0]) {
 		q, bound, err := p.bindNamed(query, args[0])
 		return q, bound, args[0], err
+	}
+	if len(args) > 0 {
+		return p.db.Rebind(query), args, args, nil
 	}
 	return query, args, args, nil
 }
