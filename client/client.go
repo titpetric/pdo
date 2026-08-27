@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"sort"
@@ -258,8 +259,23 @@ func structColumns(value any) ([]string, error) {
 	return cols, nil
 }
 
+// timeType is the one struct database/sql binds on its own without saying so
+// through driver.Valuer, so isNamedArg has to name it.
+var timeType = reflect.TypeOf(time.Time{})
+
 // isNamedArg reports whether arg should be bound as named parameters
 // (struct or map[string]any/string), as opposed to positional parameters.
+//
+// A struct is normally a bag of fields to fill :name placeholders from, but not
+// every struct is: a value database/sql converts on its own is one argument for
+// one placeholder, and reading it as a bag leaves that placeholder unbound. The
+// caller then gets a syntax error from the server rather than a bind error,
+// because the statement arrives with its `?` still in it.
+//
+// driver.Valuer covers sql.NullString, sql.NullTime and every user type written
+// to be bindable. time.Time is the one bindable struct that does not implement
+// it, and it is the one that turns up: a DATETIME column scans into one, and
+// the same value goes back in.
 func isNamedArg(arg any) bool {
 	if arg == nil {
 		return false
@@ -270,9 +286,15 @@ func isNamedArg(arg any) bool {
 	if _, ok := arg.(map[string]any); ok {
 		return true
 	}
+	if _, ok := arg.(driver.Valuer); ok {
+		return false
+	}
 	t := reflect.TypeOf(arg)
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
+	}
+	if t == timeType {
+		return false
 	}
 	return t.Kind() == reflect.Struct
 }

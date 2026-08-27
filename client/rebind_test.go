@@ -1,7 +1,9 @@
 package client
 
 import (
+	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
@@ -73,6 +75,59 @@ func TestPrepareQueryNamed(t *testing.T) {
 	p := &Client{db: sqlx.NewDb(nil, "pgx")}
 
 	arg := map[string]any{"id": 1}
+	query, bound, logged, err := p.prepareQuery("SELECT id FROM user WHERE id = :id", arg)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "SELECT id FROM user WHERE id = $1", query)
+	assert.Equal(t, []any{1}, bound)
+	assert.Equal(t, arg, logged)
+}
+
+// A lone value database/sql binds on its own takes the positional path. The
+// named path would find no :name placeholders to fill and hand the driver a
+// statement with its `?` still in it, which the server reports as a syntax
+// error rather than as a bind error, so the caller is told the wrong thing
+// about the wrong statement.
+//
+// The case that turns up is time.Time, because a DATETIME column scans into
+// one and the same value goes back in: `INSERT INTO events (at) VALUES (?)`
+// binds exactly one value, and that value is a struct.
+func TestPrepareQueryBindsLoneValueByPosition(t *testing.T) {
+	instant := time.Date(2026, time.August, 26, 14, 48, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		arg  any
+	}{
+		{"time", instant},
+		{"time pointer", &instant},
+		{"driver.Valuer", sql.NullString{String: "Ada", Valid: true}},
+		{"driver.Valuer pointer", &sql.NullString{String: "Ada", Valid: true}},
+		{"null time", sql.NullTime{Time: instant, Valid: true}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			p := &Client{db: sqlx.NewDb(nil, "pgx")}
+
+			query, bound, logged, err := p.prepareQuery("INSERT INTO events (at) VALUES (?)", test.arg)
+
+			assert.NoError(t, err)
+			assert.Equal(t, "INSERT INTO events (at) VALUES ($1)", query)
+			assert.Equal(t, []any{test.arg}, bound)
+			assert.Equal(t, []any{test.arg}, logged)
+		})
+	}
+}
+
+// A struct that is a bag of fields keeps the named path, which is what
+// Insert, Replace and Update are built on. This is the other side of
+// TestPrepareQueryBindsLoneValueByPosition: the exclusions are for values the
+// driver binds, not for structs in general.
+func TestPrepareQueryNamedStruct(t *testing.T) {
+	p := &Client{db: sqlx.NewDb(nil, "pgx")}
+
+	arg := struct {
+		ID int `db:"id"`
+	}{ID: 1}
 	query, bound, logged, err := p.prepareQuery("SELECT id FROM user WHERE id = :id", arg)
 
 	assert.NoError(t, err)
