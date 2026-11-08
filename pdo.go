@@ -28,7 +28,7 @@ func New(db *sql.DB, opts ...client.Option) *PDO {
 
 // Connect takes an exclusive connection from the pool for use by the client.
 // Subsequent reads run on this connection until Close is called. Writes
-// continue to use the pool, which keeps the pinned connection for reads.
+// continue to use the pool or the transaction, not the pinned connection.
 func (h *PDO) Connect(ctx context.Context) error {
 	return h.client.Connect(ctx)
 }
