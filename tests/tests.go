@@ -1,9 +1,9 @@
 package tests
 
 import (
+	"database/sql"
 	"testing"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
 	"github.com/titpetric/pdo"
@@ -12,12 +12,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func NewDB(tb testing.TB) *sqlx.DB {
-	handle, err := sqlx.Open("sqlite", ":memory:")
+func NewDB(tb testing.TB) *sql.DB {
+	handle, err := sql.Open("sqlite", ":memory:")
 	require.NoError(tb, err)
 	tb.Cleanup(func() { handle.Close() })
 	handle.SetMaxOpenConns(1)
-	handle.MustExecContext(tb.Context(), schema.Migrations)
+	_, err = handle.ExecContext(tb.Context(), schema.Migrations)
+	require.NoError(tb, err)
 	return handle
 }
 

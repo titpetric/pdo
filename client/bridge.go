@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
-
-	"github.com/jmoiron/sqlx"
 )
 
 // Bridge exposes dynamically typed methods for language runtimes. Every method
@@ -17,8 +15,8 @@ type Bridge struct {
 }
 
 // NewBridge creates a dynamic-language bridge from an existing connection pool.
-func NewBridge(db *sqlx.DB) *Bridge {
-	return &Bridge{client: NewClient(db)}
+func NewBridge(db *sql.DB, opts ...Option) *Bridge {
+	return &Bridge{client: NewClient(db, opts...)}
 }
 
 // WithObserver sets an observer on the underlying client.
@@ -125,10 +123,16 @@ func (b *Bridge) queryMaps(ctx context.Context, query string, args ...any) ([]ma
 	}
 	defer rows.Close()
 
+	cols, err := rows.Columns()
+	if err != nil {
+		b.client.log(ctx, query, logArgs, started, err)
+		return nil, fmt.Errorf("%w\nquery: %s", err, query)
+	}
+
 	result := make([]map[string]any, 0)
 	for rows.Next() {
-		row := make(map[string]any)
-		if err = rows.MapScan(row); err != nil {
+		row, err := scanMap(rows, cols)
+		if err != nil {
 			b.client.log(ctx, query, logArgs, started, err)
 			return nil, fmt.Errorf("%w\nquery: %s", err, query)
 		}
@@ -147,12 +151,6 @@ func (b *Bridge) queryMaps(ctx context.Context, query string, args ...any) ([]ma
 	return result, nil
 }
 
-func (b *Bridge) queryRows(ctx context.Context, query string, args ...any) (*sqlx.Rows, error) {
-	if b.client.tx != nil {
-		return b.client.tx.QueryxContext(ctx, query, args...)
-	}
-	if b.client.conn != nil {
-		return b.client.conn.QueryxContext(ctx, query, args...)
-	}
-	return b.client.db.QueryxContext(ctx, query, args...)
+func (b *Bridge) queryRows(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return b.client.queryer().QueryContext(ctx, query, args...)
 }
