@@ -2,8 +2,7 @@ package pdo
 
 import (
 	"context"
-
-	"github.com/jmoiron/sqlx"
+	"database/sql"
 
 	"github.com/titpetric/pdo/client"
 )
@@ -21,15 +20,15 @@ type PDO struct {
 }
 
 // New creates a new database client for exclusive use.
-func New(db *sqlx.DB) *PDO {
+func New(db *sql.DB, opts ...client.Option) *PDO {
 	return &PDO{
-		client: client.NewClient(db),
+		client: client.NewClient(db, opts...),
 	}
 }
 
 // Connect takes an exclusive connection from the pool for use by the client.
 // Subsequent reads run on this connection until Close is called. Writes
-// continue to use the pool, since *sqlx.Conn cannot bind named parameters.
+// continue to use the pool or the transaction, not the pinned connection.
 func (h *PDO) Connect(ctx context.Context) error {
 	return h.client.Connect(ctx)
 }

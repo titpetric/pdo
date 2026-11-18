@@ -19,28 +19,32 @@ storage and repository packages stay simple.
 > **Requires Go 1.27+ (`gotip`).** The public API uses *generic methods*, a
 > language feature not yet in released Go. See [Building & testing](#building--testing).
 
-## Requirements: sqlx
+## Requirements: database/sql
 
-`pdo` is currently a thin layer over [`jmoiron/sqlx`](https://github.com/jmoiron/sqlx),
-which it requires for setup. You own the `*sqlx.DB` connection pool - opening it,
-configuring it, and running migrations - and you hand that pool to `pdo.New`.
-The pool is safe for concurrent use; the per-request `*PDO` you create from it is
-not. That's the whole point: it's single-goroutine, request-scoped state.
+`pdo` has no dependencies beyond the standard library. You own the `*sql.DB`
+connection pool - opening it, configuring it, and running migrations - and you
+hand that pool to `pdo.New`. The pool is safe for concurrent use; the per-request
+`*PDO` you create from it is not. That's the whole point: it's single-goroutine,
+request-scoped state.
+
+The placeholder style (`?` or `$1`) is detected from the driver; for a driver
+that isn't recognised pass `client.WithDriver("pgx")` (the name given to
+`sql.Open`) as an option to `pdo.New`. Coming from `*sqlx.DB`, pass its `.DB`.
 
 ```go
 import (
-	"github.com/jmoiron/sqlx"
+	"database/sql"
 	_ "modernc.org/sqlite"
 )
 
 // ExampleService holds the shared, concurrency-safe pool. It is created once
 // at startup and lives for the life of the process.
 type ExampleService struct {
-	db *sqlx.DB
+	db *sql.DB
 }
 
 func NewExampleService() (*ExampleService, error) {
-	db, err := sqlx.Open("sqlite", "file:app.db")
+	db, err := sql.Open("sqlite", "file:app.db")
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +133,8 @@ func (s *ExampleService) Report(w http.ResponseWriter, r *http.Request) {
 After `Connect()`, `Begin` starts its transaction on the pinned connection. Once
 the transaction commits, the connection stays pinned until you call `Close()`.
 
-> Note: reads run on the pinned connection, but writes still go through the pool,
-> because `*sqlx.Conn` cannot bind named (`:name`) parameters. Don't pin the only
+> Note: reads run on the pinned connection, but writes still go through the pool.
+> Don't pin the only
 > connection of a single-connection pool and then write, or the write will block
 > waiting for a connection that is already held.
 >
@@ -208,7 +212,7 @@ write-focused, and run reads outside them where you can.
 
 ## API reference
 
-The entry point is `pdo.PDO`, created with `pdo.New(*sqlx.DB)`.
+The entry point is `pdo.PDO`, created with `pdo.New(*sql.DB)`.
 
 ### Reads (generic)
 
@@ -270,7 +274,7 @@ for _, e := range obs.Entries() {
 | `pdo.go`        | Public PDO type; generic method API (New, Get, Insert) |
 | `interfaces.go` | Public interfaces (Reader, Writer, Transactor, ...)    |
 | `driver.go`     | Internal typeless driver interface                     |
-| `client/`       | Client: sqlx wrapper, query building, observer         |
+| `client/`       | Client: database/sql wrapper, named binds, scanning, observer         |
 | `model/`        | Generated data models + query builders (mig)           |
 | `schema/`       | SQL migrations + schema.yml                            |
 | `tests/`        | Shared test helpers + HTTP handler tests/benchmarks    |

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,7 +9,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
 	"github.com/titpetric/pdo"
@@ -18,7 +18,7 @@ import (
 
 // allocHandler returns a handler that uses the generic Get[T] helper, which
 // allocates a fresh T on every call and returns it by value.
-func allocHandler(db *sqlx.DB) http.HandlerFunc {
+func allocHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		pdb := pdo.New(db)
@@ -37,7 +37,7 @@ func allocHandler(db *sqlx.DB) http.HandlerFunc {
 
 // scannerHandler returns a handler that uses the scanner-style Client.Get,
 // where the caller owns the destination value and passes a pointer to it.
-func scannerHandler(db *sqlx.DB) http.HandlerFunc {
+func scannerHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		db := client.NewClient(db)
 		var u model.User
@@ -59,7 +59,7 @@ const benchSeeded = 50
 // setupBenchDB creates a shared :memory: database seeded with users. The pool
 // is serialized to a single connection so the in-memory DB is shared across
 // goroutines.
-func setupBenchDB(tb testing.TB) *sqlx.DB {
+func setupBenchDB(tb testing.TB) *sql.DB {
 	tb.Helper()
 	ctx := tb.Context()
 
@@ -109,7 +109,7 @@ func TestStatelessHTTPHandler(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		handler func(*sqlx.DB) http.HandlerFunc
+		handler func(*sql.DB) http.HandlerFunc
 	}{
 		{"alloc", allocHandler},
 		{"scanner", scannerHandler},
@@ -129,7 +129,7 @@ func TestStatelessHTTPHandler(t *testing.T) {
 func BenchmarkStatelessHTTPHandler(b *testing.B) {
 	for _, bc := range []struct {
 		name    string
-		handler func(*sqlx.DB) http.HandlerFunc
+		handler func(*sql.DB) http.HandlerFunc
 	}{
 		{"alloc", allocHandler},
 		{"scanner", scannerHandler},

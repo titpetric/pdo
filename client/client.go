@@ -9,22 +9,21 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/jmoiron/sqlx"
 )
 
-// Client wraps an *sqlx.DB and provides a PHP-PDO-like API.
+// Client wraps a *sql.DB and provides a PHP-PDO-like API.
 //
-// Concurrency: The underlying *sqlx.DB is safe for concurrent use, so multiple
+// Concurrency: The underlying *sql.DB is safe for concurrent use, so multiple
 // PDO instances can share the same database connection pool. A single *Client
 // value is NOT safe for concurrent use: write operations mutate lastInsertID
 // and rowsAffected, and transaction methods mutate transaction state. For
 // stateless HTTP handlers, create a new *Client per request that shares the
 // underlying *sql.DB pool (see OpenDB).
 type Client struct {
-	db           *sqlx.DB
-	conn         *sqlx.Conn
-	tx           *sqlx.Tx
+	db           *sql.DB
+	conn         *sql.Conn
+	tx           *sql.Tx
+	bind         bindType
 	lastInsertID int64
 	rowsAffected int64
 	observe      ObserveFunc
@@ -41,11 +40,28 @@ func (p *Client) Close() error {
 	return nil
 }
 
-// NewClient creates a new PDO from an existing *sqlx.DB.
-func NewClient(db *sqlx.DB) *Client {
-	return &Client{
-		db: db,
+// Option configures a Client.
+type Option func(*Client)
+
+// WithDriver names the driver behind the pool (as passed to sql.Open), which
+// decides the placeholder style: "pgx" and "postgres" read $1, $2. NewClient
+// otherwise detects it from the driver's package, which covers pgx and lib/pq.
+func WithDriver(name string) Option {
+	return func(p *Client) {
+		p.bind = bindTypeFor(name)
 	}
+}
+
+// NewClient creates a new PDO from an existing *sql.DB.
+func NewClient(db *sql.DB, opts ...Option) *Client {
+	p := &Client{
+		db:   db,
+		bind: bindTypeFor(detectDriver(db)),
+	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 // WithObserver sets an observer to the client.
@@ -142,7 +158,7 @@ func (p *Client) RowsAffected() int64 {
 
 // Connect takes a transaction from the pool for exclusive use by the client.
 func (p *Client) Connect(ctx context.Context) error {
-	conn, err := p.db.Connx(ctx)
+	conn, err := p.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
@@ -159,7 +175,7 @@ func (p *Client) Begin(ctx context.Context) error {
 	}
 
 	type beginner interface {
-		BeginTxx(context.Context, *sql.TxOptions) (*sqlx.Tx, error)
+		BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 	}
 
 	var db beginner
@@ -169,7 +185,7 @@ func (p *Client) Begin(ctx context.Context) error {
 		db = p.conn
 	}
 
-	tx, err := db.BeginTxx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("database error: can't start transaction: %w", err)
 	}
@@ -320,18 +336,19 @@ func (p *Client) log(ctx context.Context, query string, args any, started time.T
 	})
 }
 
-// execer ignores 'conn' as it doesn't implement ExtContext
-// and is missing named bindings. Could be awkward.
-func (p *Client) execer() sqlx.ExtContext {
+// execer ignores 'conn': writes go through the transaction or the pool.
+func (p *Client) execer() interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+} {
 	if p.tx != nil {
 		return p.tx
 	}
 	return p.db
 }
 
+// queryer prefers the transaction, then the exclusive connection, then the pool.
 func (p *Client) queryer() interface {
-	SelectContext(ctx context.Context, dest any, query string, args ...any) error
-	GetContext(ctx context.Context, dest any, query string, args ...any) error
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 } {
 	if p.tx != nil {
 		return p.tx
@@ -365,14 +382,13 @@ func (p *Client) exec(ctx context.Context, query string, args ...any) error {
 }
 
 // bindNamed expands a named query against a struct or map and rebinds it to
-// the driver's placeholder style. Used for Select/Get since sqlx's named query
-// helpers don't compose cleanly with GetContext/SelectContext.
+// the driver's placeholder style.
 func (p *Client) bindNamed(query string, arg any) (string, []any, error) {
-	q, bound, err := sqlx.Named(query, arg)
+	q, bound, err := bindNamedArgs(query, arg)
 	if err != nil {
 		return "", nil, err
 	}
-	return p.db.Rebind(q), bound, nil
+	return rebind(p.bind, q), bound, nil
 }
 
 func (p *Client) selectRows(ctx context.Context, dest any, query string, args ...any) error {
@@ -381,7 +397,10 @@ func (p *Client) selectRows(ctx context.Context, dest any, query string, args ..
 		return fmt.Errorf("%w\nquery: %s", err, query)
 	}
 	started := time.Now()
-	err = p.queryer().SelectContext(ctx, dest, q, boundArgs...)
+	rows, err := p.queryer().QueryContext(ctx, q, boundArgs...)
+	if err == nil {
+		err = scanAll(rows, dest)
+	}
 	p.log(ctx, query, logArgs, started, err)
 	if err != nil {
 		return fmt.Errorf("%w\nquery: %s", err, query)
@@ -395,7 +414,10 @@ func (p *Client) getRow(ctx context.Context, dest any, query string, args ...any
 		return fmt.Errorf("%w\nquery: %s", err, query)
 	}
 	started := time.Now()
-	err = p.queryer().GetContext(ctx, dest, q, boundArgs...)
+	rows, err := p.queryer().QueryContext(ctx, q, boundArgs...)
+	if err == nil {
+		err = scanOne(rows, dest)
+	}
 	p.log(ctx, query, logArgs, started, err)
 	if err != nil {
 		return fmt.Errorf("%w\nquery: %s", err, query)
@@ -407,7 +429,7 @@ func (p *Client) getRow(ctx context.Context, dest any, query string, args ...any
 // driver expects.
 //
 // Positional arguments are rebound, because `?` is not the placeholder every
-// driver reads: pgx wants $1, $2. Rebind is a scanner rather than a parser and
+// driver reads: pgx wants $1, $2. rebind is a scanner rather than a parser and
 // would rewrite a `?` inside a string literal, so it only runs when there is
 // something to bind. A statement with no arguments is passed through as
 // written, which is what an SQL console needs.
@@ -417,7 +439,7 @@ func (p *Client) prepareQuery(query string, args ...any) (string, []any, any, er
 		return q, bound, args[0], err
 	}
 	if len(args) > 0 {
-		return p.db.Rebind(query), args, args, nil
+		return rebind(p.bind, query), args, args, nil
 	}
 	return query, args, args, nil
 }

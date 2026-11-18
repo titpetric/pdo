@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -57,7 +56,7 @@ func TestPrepareQueryRebind(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			p := &Client{db: sqlx.NewDb(nil, test.driver)}
+			p := NewClient(nil, WithDriver(test.driver))
 
 			query, bound, logged, err := p.prepareQuery(test.query, test.args...)
 
@@ -72,7 +71,7 @@ func TestPrepareQueryRebind(t *testing.T) {
 // TestPrepareQueryNamed asserts the named path still wins over the positional
 // one: a single map argument is expanded by name, not bound by position.
 func TestPrepareQueryNamed(t *testing.T) {
-	p := &Client{db: sqlx.NewDb(nil, "pgx")}
+	p := NewClient(nil, WithDriver("pgx"))
 
 	arg := map[string]any{"id": 1}
 	query, bound, logged, err := p.prepareQuery("SELECT id FROM user WHERE id = :id", arg)
@@ -106,7 +105,7 @@ func TestPrepareQueryBindsLoneValueByPosition(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			p := &Client{db: sqlx.NewDb(nil, "pgx")}
+			p := NewClient(nil, WithDriver("pgx"))
 
 			query, bound, logged, err := p.prepareQuery("INSERT INTO events (at) VALUES (?)", test.arg)
 
@@ -123,7 +122,7 @@ func TestPrepareQueryBindsLoneValueByPosition(t *testing.T) {
 // TestPrepareQueryBindsLoneValueByPosition: the exclusions are for values the
 // driver binds, not for structs in general.
 func TestPrepareQueryNamedStruct(t *testing.T) {
-	p := &Client{db: sqlx.NewDb(nil, "pgx")}
+	p := NewClient(nil, WithDriver("pgx"))
 
 	arg := struct {
 		ID int `db:"id"`
