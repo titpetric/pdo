@@ -1,5 +1,29 @@
 # pdo
 
+> ## ⚠️ Breaking change in v0.3.0 — released 2026-11-18
+>
+> `pdo` v0.3.0 drops `github.com/jmoiron/sqlx` and depends on the standard
+> library only. The constructors now take a `*sql.DB` instead of a `*sqlx.DB`:
+>
+> | Before (≤ v0.2.5)           | After (v0.3.0)                                    |
+> |-----------------------------|---------------------------------------------------|
+> | `pdo.New(sqlxDB)`           | `pdo.New(sqlxDB.DB)` (or any `*sql.DB`)           |
+> | `client.NewClient(sqlxDB)`  | `client.NewClient(sqlxDB.DB)`                     |
+> | `client.NewBridge(sqlxDB)`  | `client.NewBridge(sqlxDB.DB)`                     |
+>
+> **Required changes when upgrading:**
+>
+> 1. `go get github.com/titpetric/pdo@v0.3.0`
+> 2. Pass the underlying `*sql.DB` — for an existing `*sqlx.DB`, its `.DB`
+>    field — to `pdo.New`, `client.NewClient` and `client.NewBridge`.
+> 3. Run `go mod tidy`: `github.com/jmoiron/sqlx` and its driver packages drop
+>    out of `go.mod`/`go.sum` when nothing else needs them.
+>
+> Placeholder rebinding (`?` → `$n`/`@pn`/`:argn`) and `:name` expansion are
+> now built in. The driver is detected from its package path; pass
+> `client.WithDriver("pgx")` when wrapping an unrecognised driver. See
+> [Requirements: database/sql](#requirements-databasesql).
+
 `pdo` is a small, request-scoped SQL client for Go services. It fits the shape of
 a normal `net/http` server: the standard library already gives every request its
 own goroutine, so the natural unit of database state is one client per request.
